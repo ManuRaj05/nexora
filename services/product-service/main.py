@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from database import get_connection
+import httpx
 
 app = FastAPI()
 
@@ -129,3 +130,13 @@ def delete_product(product_id: int):
 
     return {"message": "Product deleted successfully", "product_id": deleted_product[0]}
 
+@app.get("/user-info/{user_id}")
+def get_user_info(user_id: int):
+    response = httpx.get(
+        f"http://127.0.0.1:8000/users/{user_id}"
+    )
+
+    if response.status_code != 200:
+        return {"error": "User not found"}
+
+    return response.json()

@@ -46,6 +46,21 @@ def get_users():
             users = cursor.fetchall()
     return users
 
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, username, email, role FROM users WHERE id = %s;",
+                (user_id,)
+            )
+            user = cursor.fetchone()
+
+    if user is None:
+        return {"error": "User not found"}
+
+    return user
+
 @app.post("/users/register")
 def register_user(user: UserCreate):
     password_hash = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
