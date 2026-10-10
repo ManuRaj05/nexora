@@ -40,19 +40,71 @@ def release_reserved_stock(reserved_items):
                 timeout=5.0
             )
 
-            if response.status_code != 200:
-                all_released = False
-                print(
-                    f"WARNING: Failed to release stock for "
-                    f"product {item['product_id']}: "
-                    f"{response.status_code} - {response.text}"
-                )
+            if (
+                response.status_code == 200
+                and response.json().get("status") == "RELEASED"
+            ):
+                continue
+
+            error = (
+                f"Product Service returned HTTP {response.status_code}: "
+                f"{response.text}"
+            )
 
         except httpx.RequestError as error:
-            all_released = False
+            error = f"Product Service request failed: {error}"
+
+        all_released = False
+        print(
+            f"WARNING: Stock release failed for product "
+            f"{item['product_id']}: {error}"
+        )
+
+        try:
+            with get_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO reconciliation_tasks
+                        (reservation_id, product_id, quantity, action,
+                         status, last_error)
+                        VALUES (%s, %s, %s, 'RELEASE', 'PENDING', %s)
+                        ON CONFLICT (reservation_id, action)
+                        DO UPDATE SET
+                            status = CASE
+                                WHEN reconciliation_tasks.status = 'COMPLETED'
+                                THEN 'COMPLETED'
+                                ELSE 'PENDING'
+                            END,
+                            next_retry_at = CASE
+                                WHEN reconciliation_tasks.status = 'COMPLETED'
+                                THEN reconciliation_tasks.next_retry_at
+                                ELSE CURRENT_TIMESTAMP
+                            END,
+                            last_error = CASE
+                                WHEN reconciliation_tasks.status = 'COMPLETED'
+                                THEN reconciliation_tasks.last_error
+                                ELSE EXCLUDED.last_error
+                            END,
+                            updated_at = CURRENT_TIMESTAMP;
+                        """,
+                        (
+                            item["reservation_id"],
+                            item["product_id"],
+                            item["quantity"],
+                            str(error)[:2000]
+                        )
+                    )
+
             print(
-                f"WARNING: Could not release stock for "
-                f"product {item['product_id']}: {error}"
+                f"Reconciliation task saved for reservation "
+                f"{item['reservation_id']}"
+            )
+
+        except Exception as db_error:
+            print(
+                f"CRITICAL: Could not save reconciliation task for "
+                f"reservation {item['reservation_id']}: {db_error}"
             )
 
     return all_released

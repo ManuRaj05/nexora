@@ -321,3 +321,31 @@ def get_user_info(user_id: int):
         return {"error": "User not found"}
 
     return response.json()
+
+@app.get("/products/{product_id}/reservations/{reservation_id}")
+def get_reservation_status(product_id: int, reservation_id: UUID):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT reservation_id, product_id, quantity, status, created_at
+                FROM stock_reservations
+                WHERE reservation_id = %s AND product_id = %s;
+                """,
+                (reservation_id, product_id)
+            )
+            reservation = cursor.fetchone()
+
+    if reservation is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Reservation not found"
+        )
+
+    return {
+        "reservation_id": str(reservation[0]),
+        "product_id": reservation[1],
+        "quantity": reservation[2],
+        "status": reservation[3],
+        "created_at": reservation[4]
+    }
