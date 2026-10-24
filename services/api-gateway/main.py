@@ -1,8 +1,42 @@
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
 import httpx
+from typing import List
 
 app = FastAPI(title="Nexora API Gateway")
 
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class ProductCreate(BaseModel):
+    name: str
+    description: str
+    price: float
+    stock: int
+    category: str
+
+class ProductUpdate(BaseModel):
+    name: str
+    description: str
+    price: float
+    stock: int
+    category: str
+
+class OrderItemCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+
+class OrderCreate(BaseModel):
+    user_id: int
+    items: List[OrderItemCreate]
 USER_SERVICE_URL = "http://127.0.0.1:8000"
 PRODUCT_SERVICE_URL = "http://127.0.0.1:8001"
 ORDER_SERVICE_URL = "http://127.0.0.1:8002"
@@ -67,21 +101,21 @@ async def get_current_user(request: Request):
     )
 
 @app.post("/users/register")
-async def register_user(user: dict):
+async def register_user(user: UserCreate):
     return await forward_request(
         "POST",
         f"{USER_SERVICE_URL}/users/register",
         "User Service",
-        json_data=user
+        json_data=user.model_dump()
     )
 
 @app.post("/users/login")
-async def login_user(user: dict):
+async def login_user(user: UserLogin):
     return await forward_request(
         "POST",
         f"{USER_SERVICE_URL}/users/login",
         "User Service",
-        json_data=user
+        json_data=user.model_dump()
     )
 
 @app.get("/products")
@@ -92,6 +126,25 @@ async def get_products():
         "Product Service"
     )
     
+@app.post("/products")
+async def create_product(product: ProductCreate):
+    return await forward_request(
+        "POST",
+        f"{PRODUCT_SERVICE_URL}/products",
+        "Product Service",
+        json_data=product.model_dump()
+    )
+
+
+@app.put("/products/{product_id}")
+async def update_product(product_id: int, product: ProductUpdate):
+    return await forward_request(
+        "PUT",
+        f"{PRODUCT_SERVICE_URL}/products/{product_id}",
+        "Product Service",
+        json_data=product.model_dump()
+    )
+
 @app.get("/products/{product_id}")
 async def get_product(product_id: int):
     return await forward_request(
@@ -119,11 +172,11 @@ async def get_order(order_id: int):
     )
 
 @app.post("/orders")
-async def create_order(order: dict):
+async def create_order(order: OrderCreate):
     return await forward_request(
         "POST",
         f"{ORDER_SERVICE_URL}/orders",
         "Order Service",
-        json_data=order,
+        json_data=order.model_dump(),
         timeout=30.0
     )
