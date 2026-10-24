@@ -46,6 +46,23 @@ def get_users():
             users = cursor.fetchall()
     return users
 
+@app.get("/users/me")
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+
+    payload = verify_token(token)
+
+    if payload is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
+
+    return {
+        "user_id": payload["user_id"],
+        "role": payload["role"]
+    }
+
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
     with get_connection() as connection:
@@ -93,12 +110,18 @@ def login_user(user: UserLogin):
             )
             existing_user = cursor.fetchone()
     if existing_user is None:
-        return {"error": "Invalid email or password"}
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
     password_matches=bcrypt.checkpw(user.password.encode("utf-8"),existing_user[3].encode("utf-8")
     )
 
     if not password_matches:
-        return {"error": "Invalid email or password"}
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
     
     token = jwt.encode({
         "user_id":existing_user[0],
@@ -110,21 +133,4 @@ def login_user(user: UserLogin):
     return {
         "message":"Login successful",
         "token":token
-    }
-
-@app.get("/users/me")
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-
-    payload = verify_token(token)
-
-    if payload is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token"
-        )
-
-    return {
-        "user_id": payload["user_id"],
-        "role": payload["role"]
     }

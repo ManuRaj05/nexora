@@ -78,7 +78,7 @@ def get_product(product_id: int):
             product = cursor.fetchone()
 
     if product is None:
-        return {"error": "Product not found"}
+        raise HTTPException(status_code=404, detail="Product not found")
 
     return product
 
@@ -109,7 +109,7 @@ def update_product(product_id: int, product: ProductUpdate):
             updated_product = cursor.fetchone()
 
     if updated_product is None:
-        return {"error": "Product not found"}
+        raise HTTPException(status_code=404, detail="Product not found")    
 
     return updated_product
 
@@ -128,7 +128,7 @@ def delete_product(product_id: int):
             deleted_product = cursor.fetchone()
 
     if deleted_product is None:
-        return {"error": "Product not found"}
+        raise HTTPException(status_code=404, detail="Product not found")
 
     return {"message": "Product deleted successfully", "product_id": deleted_product[0]}
 
