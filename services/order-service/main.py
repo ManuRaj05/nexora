@@ -30,6 +30,8 @@ def release_reserved_stock(reserved_items):
     all_released = True
 
     for item in reversed(reserved_items):
+        error_message = None
+
         try:
             response = httpx.post(
                 f"http://127.0.0.1:8001/products/{item['product_id']}/release",
@@ -46,18 +48,18 @@ def release_reserved_stock(reserved_items):
             ):
                 continue
 
-            error = (
+            error_message = (
                 f"Product Service returned HTTP {response.status_code}: "
                 f"{response.text}"
             )
 
-        except httpx.RequestError as error:
-            error = f"Product Service request failed: {error}"
+        except httpx.RequestError as exc:
+            error_message = f"Product Service request failed: {exc}"
 
         all_released = False
         print(
             f"WARNING: Stock release failed for product "
-            f"{item['product_id']}: {error}"
+            f"{item['product_id']}: {error_message}"
         )
 
         try:
@@ -92,7 +94,7 @@ def release_reserved_stock(reserved_items):
                             item["reservation_id"],
                             item["product_id"],
                             item["quantity"],
-                            str(error)[:2000]
+                            error_message[:2000]
                         )
                     )
 
