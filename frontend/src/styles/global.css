@@ -31,6 +31,9 @@ a:focus-visible, button:focus-visible { outline: 3px solid #879044; outline-offs
 .main-nav, .header-actions { display: flex; align-items: center; gap: 34px; }
 .nav-link, .account-link { color: #666b61; font-size: 12px; text-decoration: none; transition: color .2s ease; }
 .nav-link:hover, .account-link:hover, .nav-link.active { color: var(--ink); }
+.account-status { color: #73786c; font-size: 11px; }
+.logout-button { padding: 0; border: 0; background: none; cursor: pointer; }
+.register-header-link { padding: 8px 11px; border: 1px solid #d9dbd1; }
 .nav-link.active { text-decoration: underline; text-decoration-color: #acb66d; text-underline-offset: 7px; }
 .header-actions { gap: 24px; }
 .cart-link { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; text-decoration: none; }
@@ -89,6 +92,15 @@ h1 em, h2 em { color: #838b4f; font-weight: 500; }
 .placeholder-notice { margin: 30px 0; padding: 18px 20px; border-left: 2px solid #a4ac5c; background: #eeefe7; color: #656a5f; font-size: 12px; }
 .form-footnote { margin-top: 30px; color: #777b70; font-size: 11px; }
 .form-footnote a, .text-link { color: #57603f; font-weight: 600; text-underline-offset: 4px; }
+.auth-form { display: grid; gap: 10px; margin-top: 28px; }
+.auth-form label { margin-top: 7px; color: #555b50; font-size: 11px; font-weight: 600; }
+.auth-form input { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #d8d9d1; border-radius: 0; background: #fff; color: var(--ink); font-size: 13px; }
+.auth-form input:focus { border-color: #858d50; outline: 2px solid rgba(133,141,80,.17); }
+.auth-submit { width: fit-content; margin-top: 14px; border: 0; cursor: pointer; }
+.auth-submit:disabled { opacity: .65; cursor: wait; }
+.form-message { margin: 21px 0; padding: 14px 16px; font-size: 11px; line-height: 1.6; }
+.form-success { border-left: 2px solid #8f9b51; background: #eeefe7; color: #586044; }
+.form-error { border-left: 2px solid #a35a49; background: #fff1ed; color: #7c4034; }
 .text-link { display: inline-flex; align-items: center; gap: 12px; font-size: 11px; }
 .text-link span { font-size: 16px; }
 .site-footer { display: flex; width: min(1200px, calc(100% - 80px)); justify-content: space-between; margin: 0 auto; padding: 22px 0 25px; border-top: 1px solid var(--line); color: #82867c; font-size: 9px; letter-spacing: .07em; }
@@ -209,6 +221,7 @@ h1 em, h2 em { color: #838b4f; font-weight: 500; }
   .main-nav { gap: 12px; }
   .nav-link, .account-link, .cart-link { font-size: 10px; }
   .header-actions { gap: 10px; }
+  .account-status, .register-header-link { display: none; }
   .cart-label { display: none; }
   .hero { width: calc(100% - 32px); }
   .hero-art { min-height: 315px; }

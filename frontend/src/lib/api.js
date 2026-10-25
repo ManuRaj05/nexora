@@ -17,7 +17,9 @@ export async function apiRequest(path, options = {}) {
     const message = typeof payload === 'object' && payload !== null
       ? payload.detail || payload.message
       : payload
-    throw new Error(message || `Request failed (${response.status})`)
+    const error = new Error(typeof message === 'string' ? message : `Request failed (${response.status})`)
+    error.status = response.status
+    throw error
   }
 
   return payload

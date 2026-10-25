@@ -1,5 +1,6 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useCart } from '../../features/cart/CartContext.jsx'
+import { useAuth } from '../../features/auth/AuthContext.jsx'
 
 const links = [
   { to: '/', label: 'Shop', end: true },
@@ -8,6 +9,13 @@ const links = [
 
 export default function SiteLayout() {
   const { itemCount } = useCart()
+  const { user, status, isAuthenticated, logout } = useAuth()
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate('/', { replace: true })
+  }
 
   return (
     <div className="site-shell">
@@ -28,7 +36,19 @@ export default function SiteLayout() {
           </nav>
 
           <div className="header-actions">
-            <NavLink className="account-link" to="/login">Sign in</NavLink>
+            {status === 'loading' ? (
+              <span className="account-status" role="status">Checking…</span>
+            ) : isAuthenticated ? (
+              <>
+                <span className="account-status">Account {user?.user_id ? `#${user.user_id}` : ''}</span>
+                <button className="account-link logout-button" type="button" onClick={handleLogout}>Sign out</button>
+              </>
+            ) : (
+              <>
+                <NavLink className="account-link" to="/login">Sign in</NavLink>
+                <NavLink className="account-link register-header-link" to="/register">Join</NavLink>
+              </>
+            )}
             <NavLink className="cart-link" to="/cart" aria-label={`Cart, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}>
               <span className="cart-label">Cart</span>
               <span className="cart-count" aria-hidden="true">{itemCount}</span>
