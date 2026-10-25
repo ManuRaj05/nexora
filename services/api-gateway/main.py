@@ -166,29 +166,35 @@ async def get_product(product_id: int):
     )
 
 @app.get("/orders")
-async def get_orders():
+async def get_orders(request: Request):
+    authorization = request.headers.get("Authorization")
     return await forward_request(
         "GET",
         f"{ORDER_SERVICE_URL}/orders",
         "Order Service",
+        headers={"Authorization": authorization} if authorization else None,
         timeout=10.0
     )
 
 @app.get("/orders/{order_id}")
-async def get_order(order_id: int):
+async def get_order(order_id: int, request: Request):
+    authorization = request.headers.get("Authorization")
     return await forward_request(
         "GET",
         f"{ORDER_SERVICE_URL}/orders/{order_id}",
         "Order Service",
+        headers={"Authorization": authorization} if authorization else None,
         timeout=10.0
     )
 
 @app.post("/orders")
-async def create_order(order: OrderCreate):
+async def create_order(order: OrderCreate, request: Request):
+    authorization = request.headers.get("Authorization")
     return await forward_request(
         "POST",
         f"{ORDER_SERVICE_URL}/orders",
         "Order Service",
         json_data=order.model_dump(),
+        headers={"Authorization": authorization} if authorization else None,
         timeout=30.0
     )

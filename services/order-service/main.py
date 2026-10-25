@@ -1,12 +1,64 @@
 from uuid import uuid4
-from fastapi import FastAPI
+import os
+from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 from typing import List
 import httpx
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from database import get_connection
+import jwt
 
 app = FastAPI()
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_current_identity(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Bearer token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    secret = os.getenv("JWT_SECRET")
+    if not secret or not secret.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Token verification is not configured",
+        )
+
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            secret,
+            algorithms=["HS256"],
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = payload.get("user_id")
+    role = payload.get("role")
+    if (
+        isinstance(user_id, bool)
+        or not isinstance(user_id, int)
+        or user_id <= 0
+        or not isinstance(role, str)
+        or not role.strip()
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {"user_id": user_id, "role": role}
 
 class OrderItemCreate(BaseModel):
     product_id: int
@@ -112,7 +164,16 @@ def release_reserved_stock(reserved_items):
     return all_released
 
 @app.post("/orders")
-def create_order(order: OrderCreate):
+def create_order(
+    order: OrderCreate,
+    identity: dict = Depends(get_current_identity),
+):
+
+    if order.user_id != identity["user_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Customers may only create orders for themselves",
+        )
 
     if not order.items:
         raise HTTPException(
@@ -455,16 +516,19 @@ def create_order(order: OrderCreate):
     }
 
 @app.get("/orders/{order_id}")
-def get_order(order_id: int):
+def get_order(
+    order_id: int,
+    identity: dict = Depends(get_current_identity),
+):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT id, user_id, total_amount, status, created_at
                 FROM orders
-                WHERE id = %s;
+                WHERE id = %s AND user_id = %s;
                 """,
-                (order_id,)
+                (order_id, identity["user_id"])
             )
             order = cursor.fetchone()
 
@@ -501,15 +565,17 @@ def get_order(order_id: int):
     }
 
 @app.get("/orders")
-def get_orders():
+def get_orders(identity: dict = Depends(get_current_identity)):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT id, user_id, total_amount, status, created_at
                 FROM orders
+                WHERE user_id = %s
                 ORDER BY id;
-                """
+                """,
+                (identity["user_id"],),
             )
             orders = cursor.fetchall()
 
