@@ -18,6 +18,16 @@ app = FastAPI()
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def product_service_headers():
+    token = os.getenv("ORDER_SERVICE_TOKEN")
+    if not token or not token.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Product Service authentication is not configured",
+        )
+    return {"X-Order-Service-Token": token}
+
+
 def get_current_identity(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ):
@@ -88,6 +98,7 @@ def get_product_reservation_status(item):
         response = httpx.get(
             f"http://127.0.0.1:8001/products/{item['product_id']}/reservations/"
             f"{item['reservation_id']}",
+            headers=product_service_headers(),
             timeout=5.0,
         )
     except httpx.RequestError:
@@ -183,6 +194,7 @@ def release_reserved_stock(reserved_items, idempotency_id, reservation_records, 
                     "quantity": item["quantity"],
                     "reservation_id": item["reservation_id"],
                 },
+                headers=product_service_headers(),
                 timeout=5.0,
             )
             if response.status_code == 200:
@@ -413,6 +425,8 @@ def create_order(
             status_code=400,
             detail="Order must contain at least one item"
         )
+
+    product_service_headers()
 
     idempotency_key = request.headers.get("Idempotency-Key")
     if (
@@ -680,8 +694,10 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
                 f"http://127.0.0.1:8001/products/{item.product_id}/reserve",
                 params={
                     "quantity": item.quantity,
-                    "reservation_id": reservation_id
+                    "reservation_id": reservation_id,
+                    "fencing_generation": 0,
                 },
+                headers=product_service_headers(),
                 timeout=5.0
             )
         except httpx.TimeoutException:
@@ -911,11 +927,11 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
                 cursor.execute(
                     """
                     UPDATE order_idempotency
-                    SET reservation_ids = %s, state = 'COMPLETED', response_status = 200,
+                    SET reservation_ids = %s, order_id = %s, state = 'COMPLETED', response_status = 200,
                         response_body = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s AND state = 'IN_PROGRESS';
                     """,
-                    (Jsonb(completed_records), Jsonb(response_body), idempotency_id),
+                    (Jsonb(completed_records), new_order[0], Jsonb(response_body), idempotency_id),
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("Idempotency record was not in progress")

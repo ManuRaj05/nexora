@@ -372,6 +372,55 @@ class RecoveryFlowTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
         self.assertIn("/reserve", post.call_args.args[0])
 
+    def test_completed_idempotency_update_links_created_order(self):
+        order_id = 987
+        cursor = FakeCursor(fetches=[(order_id, 7, 12.5, "PENDING", None)])
+        records = [{
+            "reservation_id": "stable-reservation",
+            "product_id": 41,
+            "quantity": 1,
+            "state": "NOT_STARTED",
+        }]
+        operation_state = {"tracking_failed": False, "reservation_records": records}
+
+        with patch.object(
+            order_service,
+            "set_reservation_state",
+            side_effect=self._set_state_side_effect,
+        ), patch.object(
+            order_service,
+            "get_connection",
+            return_value=FakeConnection(cursor),
+        ), patch.object(
+            order_service.httpx,
+            "get",
+            side_effect=[
+                FakeResponse(200, [7, "customer"]),
+                FakeResponse(200, product_row()),
+            ],
+        ), patch.object(
+            order_service.httpx,
+            "post",
+            return_value=reservation_response("stable-reservation"),
+        ):
+            result = order_service._process_order(
+                order_request(),
+                {"user_id": 7},
+                records,
+                27,
+                operation_state,
+            )
+
+        self.assertEqual(result["id"], 987)
+        update_query, update_params = next(
+            (query, params)
+            for query, params in cursor.queries
+            if "UPDATE order_idempotency" in query
+            and "state = 'COMPLETED'" in query
+        )
+        self.assertIn("order_id = %s", " ".join(update_query.split()))
+        self.assertEqual(update_params[1], 987)
+
     def test_state_update_failure_does_not_mark_record_failed(self):
         recovery = Mock()
         failed = Mock()

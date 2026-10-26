@@ -1,6 +1,14 @@
 import time
+import os
 import httpx
 from database import get_connection
+
+
+def product_service_headers():
+    service_token = os.getenv("ORDER_SERVICE_TOKEN")
+    if not service_token or not service_token.strip():
+        raise RuntimeError("Order Service authentication is not configured")
+    return {"X-Order-Service-Token": service_token}
 
 def claim_task():
     with get_connection() as connection:
@@ -72,12 +80,20 @@ def process_task(task):
         return
 
     try:
+        headers = product_service_headers()
+    except RuntimeError as error:
+        schedule_retry(task_id, attempts, error)
+        return
+
+    try:
         response = httpx.post(
             f"http://127.0.0.1:8001/products/{product_id}/release",
             params={
                 "quantity": quantity,
-                "reservation_id": str(reservation_id)
+                "reservation_id": str(reservation_id),
+                "fencing_generation": 0,
             },
+            headers=headers,
             timeout=5.0
         )
 
