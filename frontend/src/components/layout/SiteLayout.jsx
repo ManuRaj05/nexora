@@ -40,7 +40,7 @@ export default function SiteLayout() {
               <span className="account-status" role="status">Checking…</span>
             ) : isAuthenticated ? (
               <>
-                <span className="account-status">Account {user?.user_id ? `#${user.user_id}` : ''}</span>
+                <span className="account-status">{user?.username || 'Account'}</span>
                 <button className="account-link logout-button" type="button" onClick={handleLogout}>Sign out</button>
               </>
             ) : (

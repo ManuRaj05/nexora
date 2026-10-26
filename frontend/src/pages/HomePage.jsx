@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../lib/api.js'
 import LoadingState from '../components/ui/LoadingState.jsx'
@@ -85,7 +84,7 @@ export default function HomePage() {
           <p className="eyebrow"><span className="eyebrow-line" /> THE NEXORA EDIT</p>
           <h1>Good things<br />for <em>every day.</em></h1>
           <p className="hero-description">A thoughtful collection of essentials for living well. Find the pieces you’ll reach for, day after day.</p>
-          <Link className="button button-dark" to="/register">Explore the collection <span aria-hidden="true">↗</span></Link>
+          <a className="button button-dark" href="#collection">Explore the collection <span aria-hidden="true">↗</span></a>
           <div className="hero-note"><span className="note-star" aria-hidden="true">✳</span><span>Considered finds.<br />Everyday favourites.</span></div>
         </div>
         <div className="hero-art" aria-label="Abstract still life in warm natural tones" role="img">
@@ -117,7 +116,7 @@ export default function HomePage() {
           </article>
         ))}
       </section>
-      <section className="catalog-section" aria-labelledby="catalog-title">
+      <section id="collection" className="catalog-section" aria-labelledby="catalog-title">
         <div className="catalog-heading">
           <div><p className="eyebrow">THE COLLECTION</p><h2 id="catalog-title">Good finds,<br /><em>ready for you.</em></h2></div>
           {!loading && !error && <p>{products.length} {products.length === 1 ? 'considered find' : 'considered finds'}</p>}

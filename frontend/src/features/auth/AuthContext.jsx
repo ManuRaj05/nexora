@@ -21,10 +21,16 @@ function clearStoredToken() {
 }
 
 async function verifyToken(token, signal) {
-  return apiRequest('/users/me', {
+  const identity = await apiRequest('/users/me', {
     headers: { Authorization: `Bearer ${token}` },
     signal,
   })
+
+  return {
+    user_id: identity.user_id,
+    username: identity.username,
+    role: identity.role,
+  }
 }
 
 function safeAuthError(error, token = '') {

@@ -58,8 +58,23 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="Invalid or expired token"
         )
 
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT username FROM users WHERE id = %s;",
+                (payload["user_id"],)
+            )
+            user = cursor.fetchone()
+
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
     return {
         "user_id": payload["user_id"],
+        "username": user[0],
         "role": payload["role"]
     }
 
