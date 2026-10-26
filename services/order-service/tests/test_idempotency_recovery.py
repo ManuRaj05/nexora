@@ -425,7 +425,7 @@ class RecoveryFlowTests(unittest.TestCase):
         recovery = Mock()
         failed = Mock()
 
-        def fail_before_reservation(order, identity, records, idempotency_id, operation_state):
+        def fail_before_reservation(order, identity, records, idempotency_id, operation_state, authorization=None):
             order_service.set_reservation_state(
                 idempotency_id, records, 0, "RESERVING", operation_state
             )
@@ -441,6 +441,98 @@ class RecoveryFlowTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 500)
         recovery.assert_called_once_with(22)
         failed.assert_not_called()
+
+
+class OrderReadIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.token = order_service.jwt.encode(
+            {"user_id": 7, "exp": 4102444800},
+            "unit-test-secret-that-is-long-enough-for-hs256",
+            algorithm="HS256",
+        )
+        self.credentials = order_service.HTTPAuthorizationCredentials(
+            scheme="Bearer", credentials=self.token
+        )
+
+    def authenticated_identity(self):
+        with patch.dict(
+            "os.environ",
+            {"JWT_SECRET": "unit-test-secret-that-is-long-enough-for-hs256"},
+        ):
+            return order_service.get_current_identity(self.credentials)
+
+    def test_existing_user_can_read_own_order_history(self):
+        user_response = Mock(status_code=200)
+        user_response.json.return_value = {"user_id": 7, "username": "customer", "role": "CUSTOMER"}
+        identity = self.authenticated_identity()
+
+        with patch.object(order_service.httpx, "get", return_value=user_response) as user_request:
+            verified_identity = order_service.get_existing_user_identity(identity, self.credentials)
+
+        self.assertEqual(verified_identity, {"user_id": 7})
+        user_request.assert_called_once_with(
+            "http://127.0.0.1:8000/users/me",
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=5.0,
+        )
+
+    def test_deleted_user_cannot_read_order_data(self):
+        user_response = Mock(status_code=401)
+        identity = self.authenticated_identity()
+
+        with patch.object(order_service.httpx, "get", return_value=user_response), \
+             patch.object(order_service, "get_connection") as database:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.get_existing_user_identity(identity, self.credentials)
+
+        self.assertEqual(raised.exception.status_code, 401)
+        database.assert_not_called()
+
+    def test_user_service_unavailable_fails_closed_before_order_query(self):
+        identity = self.authenticated_identity()
+
+        with patch.object(order_service.httpx, "get", side_effect=httpx.ConnectError("offline")), \
+             patch.object(order_service, "get_connection") as database:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.get_existing_user_identity(identity, self.credentials)
+
+        self.assertEqual(raised.exception.status_code, 503)
+        database.assert_not_called()
+
+    def test_user_service_timeout_fails_closed_before_order_query(self):
+        identity = self.authenticated_identity()
+
+        with patch.object(order_service.httpx, "get", side_effect=httpx.TimeoutException("timeout")), \
+             patch.object(order_service, "get_connection") as database:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.get_existing_user_identity(identity, self.credentials)
+
+        self.assertEqual(raised.exception.status_code, 503)
+        database.assert_not_called()
+
+    def test_unverifiable_user_service_response_fails_closed(self):
+        identity = self.authenticated_identity()
+        user_response = Mock(status_code=200)
+        user_response.json.return_value = {"username": "customer"}
+
+        with patch.object(order_service.httpx, "get", return_value=user_response), \
+             patch.object(order_service, "get_connection") as database:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.get_existing_user_identity(identity, self.credentials)
+
+        self.assertEqual(raised.exception.status_code, 503)
+        database.assert_not_called()
+
+    def test_both_order_read_routes_require_current_user_verification(self):
+        route_dependencies = {
+            route.path: [dependency.call for dependency in route.dependant.dependencies]
+            for route in order_service.app.routes
+            if route.path in ("/orders", "/orders/{order_id}")
+        }
+
+        self.assertEqual(set(route_dependencies), {"/orders", "/orders/{order_id}"})
+        for dependencies in route_dependencies.values():
+            self.assertIn(order_service.get_existing_user_identity, dependencies)
 
 
 if __name__ == "__main__":

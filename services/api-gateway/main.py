@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import httpx
 from typing import List
 
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     username: str
     email: str
     password: str
@@ -139,22 +140,37 @@ async def get_products():
     )
     
 @app.post("/products")
-async def create_product(product: ProductCreate):
+async def create_product(product: ProductCreate, request: Request):
+    authorization = request.headers.get("Authorization")
     return await forward_request(
         "POST",
         f"{PRODUCT_SERVICE_URL}/products",
         "Product Service",
-        json_data=product.model_dump()
+        json_data=product.model_dump(),
+        headers={"Authorization": authorization} if authorization else None,
     )
 
 
 @app.put("/products/{product_id}")
-async def update_product(product_id: int, product: ProductUpdate):
+async def update_product(product_id: int, product: ProductUpdate, request: Request):
+    authorization = request.headers.get("Authorization")
     return await forward_request(
         "PUT",
         f"{PRODUCT_SERVICE_URL}/products/{product_id}",
         "Product Service",
-        json_data=product.model_dump()
+        json_data=product.model_dump(),
+        headers={"Authorization": authorization} if authorization else None,
+    )
+
+
+@app.delete("/products/{product_id}")
+async def delete_product(product_id: int, request: Request):
+    authorization = request.headers.get("Authorization")
+    return await forward_request(
+        "DELETE",
+        f"{PRODUCT_SERVICE_URL}/products/{product_id}",
+        "Product Service",
+        headers={"Authorization": authorization} if authorization else None,
     )
 
 @app.get("/products/{product_id}")

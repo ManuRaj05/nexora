@@ -10,6 +10,9 @@ const links = [
 export default function SiteLayout() {
   const { itemCount } = useCart()
   const { user, status, isAuthenticated, logout } = useAuth()
+  const navigationLinks = user?.role === 'ADMIN'
+    ? [...links, { to: '/admin/products', label: 'Manage products' }]
+    : links
   const navigate = useNavigate()
 
   function handleLogout() {
@@ -28,7 +31,7 @@ export default function SiteLayout() {
           </NavLink>
 
           <nav className="main-nav" aria-label="Main navigation">
-            {links.map(({ to, label, end }) => (
+            {navigationLinks.map(({ to, label, end }) => (
               <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                 {label}
               </NavLink>

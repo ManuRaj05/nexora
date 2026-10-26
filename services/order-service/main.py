@@ -50,6 +50,7 @@ def get_current_identity(
             credentials.credentials,
             secret,
             algorithms=["HS256"],
+            options={"require": ["user_id", "exp"]},
         )
     except jwt.InvalidTokenError:
         raise HTTPException(
@@ -59,13 +60,10 @@ def get_current_identity(
         )
 
     user_id = payload.get("user_id")
-    role = payload.get("role")
     if (
         isinstance(user_id, bool)
         or not isinstance(user_id, int)
         or user_id <= 0
-        or not isinstance(role, str)
-        or not role.strip()
     ):
         raise HTTPException(
             status_code=401,
@@ -73,7 +71,47 @@ def get_current_identity(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"user_id": user_id, "role": role}
+    return {"user_id": user_id}
+
+
+def get_existing_user_identity(
+    identity: dict = Depends(get_current_identity),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    try:
+        response = httpx.get(
+            "http://127.0.0.1:8000/users/me",
+            headers={"Authorization": f"Bearer {credentials.credentials}"},
+            timeout=5.0,
+        )
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="User Service is unavailable")
+
+    if response.status_code in (401, 404):
+        raise HTTPException(
+            status_code=401,
+            detail="User account is unavailable",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if response.status_code != 200:
+        raise HTTPException(status_code=503, detail="Unable to verify user identity")
+
+    try:
+        verified_identity = response.json()
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=503, detail="Unable to verify user identity")
+
+    verified_user_id = verified_identity.get("user_id") if isinstance(verified_identity, dict) else None
+    if isinstance(verified_user_id, bool) or not isinstance(verified_user_id, int):
+        raise HTTPException(status_code=503, detail="Unable to verify user identity")
+    if verified_user_id != identity["user_id"]:
+        raise HTTPException(
+            status_code=401,
+            detail="User account is unavailable",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return identity
 
 class OrderItemCreate(BaseModel):
     product_id: int
@@ -472,6 +510,7 @@ def create_order(
             reservation_records,
             idempotency_id,
             operation_state,
+            request.headers.get("Authorization"),
         )
     except HTTPException as error:
         try:
@@ -504,10 +543,11 @@ def create_order(
             detail=failure_detail,
         )
 
-def _process_order(order, identity, reservation_records, idempotency_id, operation_state):
+def _process_order(order, identity, reservation_records, idempotency_id, operation_state, authorization=None):
     try:
         user_response = httpx.get(
             f"http://127.0.0.1:8000/users/{order.user_id}",
+            headers={"Authorization": authorization} if authorization else None,
             timeout=5.0
         )
     except httpx.TimeoutException:
@@ -983,7 +1023,7 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
 @app.get("/orders/{order_id}")
 def get_order(
     order_id: int,
-    identity: dict = Depends(get_current_identity),
+    identity: dict = Depends(get_existing_user_identity),
 ):
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -1030,7 +1070,7 @@ def get_order(
     }
 
 @app.get("/orders")
-def get_orders(identity: dict = Depends(get_current_identity)):
+def get_orders(identity: dict = Depends(get_existing_user_identity)):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(

@@ -1,30 +1,64 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from database import get_connection
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import bcrypt
 import os
 import jwt
 import psycopg
 
 app = FastAPI()
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+
+def jwt_secret():
+    secret = os.getenv("JWT_SECRET")
+    if not secret or not secret.strip():
+        raise HTTPException(status_code=503, detail="Token verification is not configured")
+    return secret
 
 def verify_token(token: str):
+    secret = jwt_secret()
     try:
         payload = jwt.decode(
             token,
-            os.getenv("JWT_SECRET"),
-            algorithms=["HS256"]
+            secret,
+            algorithms=["HS256"],
+            options={"require": ["user_id", "exp"]},
         )
-        return payload
     except jwt.InvalidTokenError:
-        return None
+        raise HTTPException(status_code=401, detail="Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+
+    user_id = payload.get("user_id")
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise HTTPException(status_code=401, detail="Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+    return user_id
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security)):
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Bearer token required", headers={"WWW-Authenticate": "Bearer"})
+    user_id = verify_token(credentials.credentials)
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id, username, email, role FROM users WHERE id = %s;", (user_id,))
+            row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="User account is unavailable", headers={"WWW-Authenticate": "Bearer"})
+    return {"user_id": row[0], "username": row[1], "email": row[2], "role": row[3]}
+
+
+def require_admin(user=Depends(get_current_user)):
+    if user["role"] != "ADMIN":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
 
 class UserCreate(BaseModel):
-    username:str
-    email:str
-    password:str
+    model_config = ConfigDict(extra="forbid")
+    username: str
+    email: str
+    password: str
 
 class UserLogin(BaseModel):
     email:str
@@ -39,7 +73,7 @@ def health():
     return {"status": "healthy"}
 
 @app.get("/users")
-def get_users():
+def get_users(_admin=Depends(require_admin)):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT id , username,email ,role FROM users;")
@@ -47,39 +81,17 @@ def get_users():
     return users
 
 @app.get("/users/me")
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-
-    payload = verify_token(token)
-
-    if payload is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token"
-        )
-
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT username FROM users WHERE id = %s;",
-                (payload["user_id"],)
-            )
-            user = cursor.fetchone()
-
-    if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found"
-        )
-
+def get_current_user_endpoint(user=Depends(get_current_user)):
     return {
-        "user_id": payload["user_id"],
-        "username": user[0],
-        "role": payload["role"]
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "role": user["role"],
     }
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int):
+def get_user(user_id: int, identity=Depends(get_current_user)):
+    if identity["user_id"] != user_id and identity["role"] != "ADMIN":
+        raise HTTPException(status_code=403, detail="You may only access your own account")
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -120,7 +132,7 @@ def login_user(user: UserLogin):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id , username,email,password_hash, role FROM users WHERE email = %s;",
+                "SELECT id, username, email, password_hash FROM users WHERE email = %s;",
                 (user.email,)
             )
             existing_user = cursor.fetchone()
@@ -140,9 +152,9 @@ def login_user(user: UserLogin):
     
     token = jwt.encode({
         "user_id":existing_user[0],
-        "role":existing_user[4]
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
     },
-    os.getenv("JWT_SECRET"), 
+    jwt_secret(),
     algorithm="HS256"
     )
     return {

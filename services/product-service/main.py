@@ -7,6 +7,7 @@ import httpx
 from uuid import UUID
 
 app = FastAPI()
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8000")
 
 class ProductCreate(BaseModel):
     name: str
@@ -22,6 +23,40 @@ class ProductUpdate(BaseModel):
     stock: int
     category: str
   
+def require_admin(authorization: str | None):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Bearer token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not USER_SERVICE_URL.strip():
+        raise HTTPException(status_code=503, detail="User Service URL is not configured")
+
+    try:
+        response = httpx.get(
+            f"{USER_SERVICE_URL}/users/me",
+            headers={"Authorization": authorization},
+            timeout=5.0,
+        )
+    except (httpx.RequestError, httpx.InvalidURL):
+        raise HTTPException(status_code=503, detail="User Service unavailable")
+
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail="Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
+    if response.status_code == 403:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    if response.status_code != 200:
+        raise HTTPException(status_code=503, detail="Unable to verify administrator identity")
+
+    try:
+        identity = response.json()
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=503, detail="Unable to verify administrator identity")
+    if not isinstance(identity, dict) or identity.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+
 @app.get("/")
 def root():
     return {"message": "Nexora Product Service is running"}
@@ -31,7 +66,8 @@ def health():
     return {"status": "healthy"}
 
 @app.post("/products")
-def create_product(product: ProductCreate):
+def create_product(product: ProductCreate, authorization: str | None = Header(default=None)):
+    require_admin(authorization)
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -84,7 +120,8 @@ def get_product(product_id: int):
     return product
 
 @app.put("/products/{product_id}")
-def update_product(product_id: int, product: ProductUpdate):
+def update_product(product_id: int, product: ProductUpdate, authorization: str | None = Header(default=None)):
+    require_admin(authorization)
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -115,7 +152,8 @@ def update_product(product_id: int, product: ProductUpdate):
     return updated_product
 
 @app.delete("/products/{product_id}")
-def delete_product(product_id: int):
+def delete_product(product_id: int, authorization: str | None = Header(default=None)):
+    require_admin(authorization)
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -501,13 +539,15 @@ def cancel_reservation(
     }
 
 @app.get("/user-info/{user_id}")
-def get_user_info(user_id: int):
-    response = httpx.get(
-        f"http://127.0.0.1:8000/users/{user_id}"
-    )
+def get_user_info(user_id: int, authorization: str | None = Header(default=None)):
+    headers = {"Authorization": authorization} if authorization else None
+    try:
+        response = httpx.get(f"{USER_SERVICE_URL}/users/{user_id}", headers=headers, timeout=5.0)
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="User Service unavailable")
 
     if response.status_code != 200:
-        return {"error": "User not found"}
+        raise HTTPException(status_code=response.status_code, detail="User Service request failed")
 
     return response.json()
 
