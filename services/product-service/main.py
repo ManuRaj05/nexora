@@ -132,6 +132,12 @@ def delete_product(product_id: int):
 
     return {"message": "Product deleted successfully", "product_id": deleted_product[0]}
 
+def lock_reservation(cursor, reservation_id: UUID):
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0));",
+        (str(reservation_id),)
+    )
+
 @app.post("/products/{product_id}/reserve")
 def reserve_stock(
     product_id: int,
@@ -146,6 +152,7 @@ def reserve_stock(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            lock_reservation(cursor, reservation_id)
             cursor.execute(
                 """
                 SELECT product_id, quantity, status
@@ -245,6 +252,7 @@ def release_stock(
 ):
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            lock_reservation(cursor, reservation_id)
             cursor.execute(
                 """
                 SELECT product_id, quantity, status
@@ -326,6 +334,7 @@ def get_user_info(user_id: int):
 def get_reservation_status(product_id: int, reservation_id: UUID):
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            lock_reservation(cursor, reservation_id)
             cursor.execute(
                 """
                 SELECT reservation_id, product_id, quantity, status, created_at

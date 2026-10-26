@@ -14,7 +14,7 @@ app.add_middleware(
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "Idempotency-Key"],
 )
 
 class UserCreate(BaseModel):
@@ -190,11 +190,17 @@ async def get_order(order_id: int, request: Request):
 @app.post("/orders")
 async def create_order(order: OrderCreate, request: Request):
     authorization = request.headers.get("Authorization")
+    idempotency_key = request.headers.get("Idempotency-Key")
+    headers = {}
+    if authorization:
+        headers["Authorization"] = authorization
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     return await forward_request(
         "POST",
         f"{ORDER_SERVICE_URL}/orders",
         "Order Service",
         json_data=order.model_dump(),
-        headers={"Authorization": authorization} if authorization else None,
+        headers=headers or None,
         timeout=30.0
     )

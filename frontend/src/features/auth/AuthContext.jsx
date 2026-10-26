@@ -44,6 +44,7 @@ function safeAuthError(error, token = '') {
 export function AuthProvider({ children }) {
   const [status, setStatus] = useState('loading')
   const [user, setUser] = useState(null)
+  const [token, setToken] = useState(null)
   const [sessionMessage, setSessionMessage] = useState('')
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function AuthProvider({ children }) {
     const token = readStoredToken()
 
     if (!token) {
+      setToken(null)
       setStatus('anonymous')
       setSessionMessage('')
       return () => controller.abort()
@@ -58,6 +60,7 @@ export function AuthProvider({ children }) {
 
     verifyToken(token, controller.signal)
       .then((identity) => {
+        setToken(token)
         setUser(identity)
         setStatus('authenticated')
         setSessionMessage('')
@@ -65,6 +68,7 @@ export function AuthProvider({ children }) {
       .catch((error) => {
         if (error.name === 'AbortError') return
         if (error.status === 401) clearStoredToken()
+        setToken(null)
         setUser(null)
         setStatus('anonymous')
         setSessionMessage(error.status === 401
@@ -77,6 +81,7 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     setStatus('loading')
+    setToken(null)
     setUser(null)
     setSessionMessage('')
     clearStoredToken()
@@ -99,12 +104,14 @@ export function AuthProvider({ children }) {
       } catch {
         // Keep this session authenticated in memory if sessionStorage is unavailable.
       }
+      setToken(token)
       setUser(identity)
       setStatus('authenticated')
       setSessionMessage('')
       return identity
     } catch (error) {
       clearStoredToken()
+      setToken(null)
       setUser(null)
       setStatus('anonymous')
       setSessionMessage('')
@@ -114,19 +121,33 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     clearStoredToken()
+    setToken(null)
     setUser(null)
     setStatus('anonymous')
     setSessionMessage('')
   }, [])
+
+  const authenticatedRequest = useCallback((path, options = {}) => {
+    if (!token) throw new Error('Authentication is required to make this request.')
+
+    return apiRequest(path, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  }, [token])
 
   const value = useMemo(() => ({
     user,
     status,
     sessionMessage,
     isAuthenticated: status === 'authenticated',
+    authenticatedRequest,
     login,
     logout,
-  }), [user, status, login, logout])
+  }), [user, status, sessionMessage, authenticatedRequest, login, logout])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

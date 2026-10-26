@@ -69,8 +69,12 @@ export function CartProvider({ children }) {
     setItems((current) => current.filter((item) => item.id !== productId))
   }
 
+  function clearCart() {
+    setItems([])
+  }
+
   const itemCount = items.reduce((total, item) => total + item.quantity, 0)
-  const value = useMemo(() => ({ items, itemCount, addItem, setQuantity, removeItem }), [items, itemCount])
+  const value = useMemo(() => ({ items, itemCount, addItem, setQuantity, removeItem, clearCart }), [items, itemCount])
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }
