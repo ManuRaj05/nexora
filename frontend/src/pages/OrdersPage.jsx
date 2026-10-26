@@ -26,6 +26,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reloadCount, setReloadCount] = useState(0)
+  const [expandedOrders, setExpandedOrders] = useState(() => new Set())
 
   useEffect(() => {
     const controller = new AbortController()
@@ -70,25 +71,49 @@ export default function OrdersPage() {
       {!loading && !error && orders.length > 0 && (
         <>
           <div className="order-list">
-            {orders.map((order, orderIndex) => (
-              <article className="placeholder-notice" key={order.id ?? orderIndex}>
-                <h2>Order #{order.id ?? '—'}</h2>
-                <p>Status: {order.status || 'Status unavailable'}</p>
-                <p>Total: {formatCurrency(order.total_amount)}</p>
-                <p>Placed: {formatDate(order.created_at)}</p>
-                {Array.isArray(order.items) && order.items.length > 0 ? (
-                  <ul>
-                    {order.items.map((item, itemIndex) => (
-                      <li key={`${order.id ?? orderIndex}-${item.product_id ?? itemIndex}`}>
-                        Product #{item.product_id ?? '—'} · Quantity {item.quantity ?? 'unavailable'}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>Order items unavailable.</p>
-                )}
-              </article>
-            ))}
+            {orders.map((order, orderIndex) => {
+              const orderKey = order.id ?? `index-${orderIndex}`
+              const detailsId = `order-details-${orderIndex}`
+              const isExpanded = expandedOrders.has(orderKey)
+
+              return (
+                <article className="placeholder-notice order-card" key={order.id ?? orderIndex}>
+                  <h2 className="order-card-heading">
+                    <button
+                      className="order-toggle"
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-controls={detailsId}
+                      onClick={() => setExpandedOrders((current) => {
+                        const next = new Set(current)
+                        if (next.has(orderKey)) next.delete(orderKey)
+                        else next.add(orderKey)
+                        return next
+                      })}
+                    >
+                      <span>Order #{order.id ?? '—'}</span>
+                      <span className="order-toggle-label">{isExpanded ? 'Hide details' : 'Show details'}</span>
+                    </button>
+                  </h2>
+                  <div id={detailsId} className="order-details" hidden={!isExpanded}>
+                    <p>Status: {order.status || 'Status unavailable'}</p>
+                    <p>Total: {formatCurrency(order.total_amount)}</p>
+                    <p>Placed: {formatDate(order.created_at)}</p>
+                    {Array.isArray(order.items) && order.items.length > 0 ? (
+                      <ul>
+                        {order.items.map((item, itemIndex) => (
+                          <li key={`${order.id ?? orderIndex}-${item.product_id ?? itemIndex}`}>
+                            Product #{item.product_id ?? '—'} · Quantity {item.quantity ?? 'unavailable'}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>Order items unavailable.</p>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
           </div>
           <Link className="text-link" to="/">Back to shopping <span aria-hidden="true">↗</span></Link>
         </>

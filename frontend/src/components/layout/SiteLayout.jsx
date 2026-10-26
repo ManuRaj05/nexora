@@ -24,7 +24,7 @@ export default function SiteLayout() {
     <div className="site-shell">
       <div className="announcement">A little more considered. A lot more everyday.</div>
       <header className="site-header">
-        <div className="header-inner">
+        <div className={`header-inner${user?.role === 'ADMIN' ? ' admin-header' : ''}`}>
           <NavLink className="brand" to="/" aria-label="Nexora home">
             <span className="brand-mark" aria-hidden="true">n</span>
             <span>nexora<span className="brand-period">.</span></span>
@@ -43,7 +43,10 @@ export default function SiteLayout() {
               <span className="account-status" role="status">Checking…</span>
             ) : isAuthenticated ? (
               <>
-                <span className="account-status">{user?.username || 'Account'}</span>
+                <span className="account-identity">
+                  <span className="account-status">{user?.username || 'Account'}</span>
+                  {user?.role === 'ADMIN' && <span className="admin-badge">ADMIN</span>}
+                </span>
                 <button className="account-link logout-button" type="button" onClick={handleLogout}>Sign out</button>
               </>
             ) : (
