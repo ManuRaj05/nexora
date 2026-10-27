@@ -1,0 +1,28 @@
+secrets:
+  name: nexora-runtime
+
+postgres:
+  serviceName: postgres
+  port: 5432
+  database: postgres
+  persistence:
+    claimName: nexora-azure-postgres-data
+    size: 5Gi
+    storageClassName: local-path
+
+replicas:
+  frontend: 1
+
+images:
+  pullPolicy: IfNotPresent
+  postgres: postgres:17.11-alpine3.24
+  userService: manuraj05/nexora-user-service:latest
+  productService: manuraj05/nexora-product-service:latest
+  orderService: manuraj05/nexora-order-service:latest
+  reconciliationWorker: manuraj05/nexora-order-reconciliation-worker:latest
+  apiGateway: manuraj05/nexora-api-gateway:latest
+  frontend: manuraj05/nexora-frontend:latest
+  
+ingress:
+  enabled: true
+  className: traefik

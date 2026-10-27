@@ -7,3 +7,12 @@ dist/
 .env
 .env.*
 !.env.example
+
+
+# Terraform state, plans, and local variables
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+
