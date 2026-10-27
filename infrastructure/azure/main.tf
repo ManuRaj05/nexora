@@ -177,8 +177,10 @@ resource "azurerm_linux_virtual_machine" "nexora" {
     package_update: true
     packages:
       - curl
+      - openssl
     runcmd:
       - [sh, -c, "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='server' sh -"]
+      - [sh, -c, "curl -fsSL https://raw.githubusercontent.com/ManuRaj05/nexora/main/infrastructure/azure/scripts/bootstrap-argocd.sh -o /root/bootstrap-argocd.sh && chmod +x /root/bootstrap-argocd.sh && /root/bootstrap-argocd.sh"]
   CLOUDINIT
   )
 

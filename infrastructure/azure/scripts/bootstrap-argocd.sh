@@ -22,7 +22,7 @@ echo "==> Installing Argo CD if missing"
   --dry-run=client -o yaml | "${K[@]}" apply -f -
 
 if ! "${K[@]}" get deployment argocd-server -n argocd >/dev/null 2>&1; then
-  "${K[@]}" apply -n argocd \
+  "${K[@]}" apply --server-side -n argocd \
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 fi
 
@@ -49,7 +49,7 @@ else
 fi
 
 echo "==> Registering Nexora with Argo CD"
-"${K[@]}" apply -n argocd \
+"${K[@]}" apply --server-side -n argocd \
   -f https://raw.githubusercontent.com/ManuRaj05/nexora/main/infrastructure/azure/argocd-application.yaml
 
 echo "==> Bootstrap complete"
