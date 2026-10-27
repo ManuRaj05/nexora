@@ -51,4 +51,4 @@ resources:
     limits: { cpu: 200m, memory: 128Mi }
 
 replicas:
-  frontend: 2
+  frontend: 3
