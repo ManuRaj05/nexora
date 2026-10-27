@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexora-order-reconciliation-worker
+  labels:
+    {{- include "nexora.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nexora.selector" (dict "name" "order-reconciliation-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexora.selector" (dict "name" "order-reconciliation-worker") | nindent 8 }}
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.images.postgres | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: POSTGRES_USER
+          command: ["sh", "-c", "until pg_isready -h {{ .Values.postgres.serviceName }} -p {{ .Values.postgres.port }} -U \"$PGUSER\" -d postgres; do sleep 2; done"]
+        - name: wait-for-product-service
+          image: {{ .Values.images.reconciliationWorker | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command:
+            - python
+            - -c
+            - |
+              import time
+              from urllib.request import urlopen
+              url = "http://{{ .Values.services.product.name }}:{{ .Values.services.product.port }}/health"
+              while True:
+                  try:
+                      with urlopen(url, timeout=2):
+                          break
+                  except Exception:
+                      time.sleep(2)
+      containers:
+        - name: reconciliation-worker
+          image: {{ .Values.images.reconciliationWorker | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["python", "reconciliation_worker.py"]
+          envFrom:
+            - configMapRef:
+                name: nexora-service-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: ORDER_DATABASE_URL
+            - name: ORDER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: ORDER_SERVICE_TOKEN
+          resources:
+            {{- toYaml .Values.resources.reconciliationWorker | nindent 12 }}

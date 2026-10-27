@@ -2,7 +2,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 import httpx
+import os
+from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().with_name(".env"), override=False)
 
 app = FastAPI(title="Nexora API Gateway")
 
@@ -50,9 +55,9 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     user_id: int
     items: List[OrderItemCreate]
-USER_SERVICE_URL = "http://127.0.0.1:8000"
-PRODUCT_SERVICE_URL = "http://127.0.0.1:8001"
-ORDER_SERVICE_URL = "http://127.0.0.1:8002"
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
+PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
+ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://127.0.0.1:8002").rstrip("/")
 
 async def forward_request(
     method: str,

@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexora-service-config
+  labels:
+    {{- include "nexora.labels" . | nindent 4 }}
+data:
+  USER_SERVICE_URL: "http://{{ .Values.services.user.name }}:{{ .Values.services.user.port }}"
+  PRODUCT_SERVICE_URL: "http://{{ .Values.services.product.name }}:{{ .Values.services.product.port }}"
+  ORDER_SERVICE_URL: "http://{{ .Values.services.order.name }}:{{ .Values.services.order.port }}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexora-postgres-init
+  labels:
+    {{- include "nexora.labels" . | nindent 4 }}
+data:
+  01-create-databases.sh: |-
+{{ .Files.Get "files/postgres/init/01-create-databases.sh" | indent 4 }}
+  02-apply-schemas.sh: |-
+{{ .Files.Get "files/postgres/init/02-apply-schemas.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexora-postgres-schema
+  labels:
+    {{- include "nexora.labels" . | nindent 4 }}
+data:
+  user-service.sql: |-
+{{ .Files.Get "files/postgres/schema/user-service.sql" | indent 4 }}
+  product-service.sql: |-
+{{ .Files.Get "files/postgres/schema/product-service.sql" | indent 4 }}
+  order-service.sql: |-
+{{ .Files.Get "files/postgres/schema/order-service.sql" | indent 4 }}

@@ -3,6 +3,8 @@ import os
 import httpx
 from database import get_connection
 
+PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
+
 
 def product_service_headers():
     service_token = os.getenv("ORDER_SERVICE_TOKEN")
@@ -87,7 +89,7 @@ def process_task(task):
 
     try:
         response = httpx.post(
-            f"http://127.0.0.1:8001/products/{product_id}/release",
+            f"{PRODUCT_SERVICE_URL}/products/{product_id}/release",
             params={
                 "quantity": quantity,
                 "reservation_id": str(reservation_id),

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nexora
+description: Local Kubernetes deployment of the Nexora e-commerce application
+type: application
+version: 0.1.0
+appVersion: "local"

@@ -1,0 +1,165 @@
+name: nexora
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Copy .env.example to .env and set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: postgres
+    volumes:
+      - nexora-postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./services/user-service/schema.sql:/schema/user-service.sql:ro
+      - ./infra/postgres/schema/product-service.sql:/schema/product-service.sql:ro
+      - ./infra/postgres/schema/order-service.sql:/schema/order-service.sql:ro
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ./services/user-service
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/nexora_users
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  product-service:
+    build:
+      context: ./services/product-service
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/nexora_products
+      USER_SERVICE_URL: http://user-service:8000
+      ORDER_SERVICE_TOKEN: ${ORDER_SERVICE_TOKEN:?Set ORDER_SERVICE_TOKEN in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8001/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  order-service:
+    build:
+      context: ./services/order-service
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/nexora_orders
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ORDER_SERVICE_TOKEN: ${ORDER_SERVICE_TOKEN:?Set ORDER_SERVICE_TOKEN in .env}
+      USER_SERVICE_URL: http://user-service:8000
+      PRODUCT_SERVICE_URL: http://product-service:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8002/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  order-reconciliation-worker:
+    build:
+      context: ./services/order-service
+    command: ["python", "reconciliation_worker.py"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/nexora_orders
+      ORDER_SERVICE_TOKEN: ${ORDER_SERVICE_TOKEN:?Set ORDER_SERVICE_TOKEN in .env}
+      PRODUCT_SERVICE_URL: http://product-service:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - nexora-internal
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    environment:
+      USER_SERVICE_URL: http://user-service:8000
+      PRODUCT_SERVICE_URL: http://product-service:8001
+      ORDER_SERVICE_URL: http://order-service:8002
+    depends_on:
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-8081}:8081"
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8081/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-5173}:8080"
+    networks:
+      - nexora-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+networks:
+  nexora-internal:
+    driver: bridge
+
+volumes:
+  nexora-postgres-data:

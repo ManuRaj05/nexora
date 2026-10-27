@@ -61,6 +61,8 @@ class AdminAuthorizationTests(unittest.TestCase):
             (11, "Test", "Test description", 12.5, 3, "Test"),
             (11, "Updated", "Updated description", 14, 4, "Test"),
             (11,),
+            (False,),
+            (11,),
         ]
         connection = Mock()
         connection.__enter__ = Mock(return_value=connection)
@@ -77,6 +79,26 @@ class AdminAuthorizationTests(unittest.TestCase):
         self.assertEqual(deleted["product_id"], 11)
         self.assertEqual(self.user_lookup.call_count, 3)
         self.assertEqual(self.get_connection.call_count, 3)
+
+    def test_product_with_active_reservation_cannot_be_deleted(self):
+        cursor = Mock()
+        cursor.__enter__ = Mock(return_value=cursor)
+        cursor.__exit__ = Mock(return_value=False)
+        cursor.fetchone.side_effect = [(11,), (True,)]
+        connection = Mock()
+        connection.__enter__ = Mock(return_value=connection)
+        connection.__exit__ = Mock(return_value=False)
+        connection.cursor.return_value = cursor
+        self.get_connection.return_value = connection
+
+        with self.assertRaises(HTTPException) as denied:
+            product_service.delete_product(11, "Bearer admin-token")
+
+        self.assertEqual(denied.exception.status_code, 409)
+        self.assertIn("active stock reservations", denied.exception.detail.lower())
+        queries = [" ".join(call.args[0].split()) for call in cursor.execute.call_args_list]
+        self.assertTrue(any("FOR UPDATE" in query for query in queries))
+        self.assertFalse(any("DELETE FROM products" in query for query in queries))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import httpx
 from uuid import UUID
 
 app = FastAPI()
-USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8000")
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 class ProductCreate(BaseModel):
     name: str
@@ -156,6 +156,35 @@ def delete_product(product_id: int, authorization: str | None = Header(default=N
     require_admin(authorization)
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM products WHERE id = %s FOR UPDATE;",
+                (product_id,),
+            )
+            existing_product = cursor.fetchone()
+            if existing_product is None:
+                raise HTTPException(status_code=404, detail="Product not found")
+
+            cursor.execute(
+                """
+                SELECT
+                    EXISTS (
+                        SELECT 1 FROM stock_reservations
+                        WHERE product_id = %s AND status = 'RESERVED'
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM reservation_operations
+                        WHERE product_id = %s AND status = 'RESERVED'
+                    );
+                """,
+                (product_id, product_id),
+            )
+            has_active_reservations = cursor.fetchone()[0]
+            if has_active_reservations:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Product cannot be deleted while it has active stock reservations",
+                )
+
             cursor.execute(
                 """
                 DELETE FROM products

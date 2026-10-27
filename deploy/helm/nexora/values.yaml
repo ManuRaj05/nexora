@@ -1,0 +1,51 @@
+images:
+  pullPolicy: Never
+  postgres: postgres:17.11-alpine3.24
+  userService: nexora-user-service:latest
+  productService: nexora-product-service:latest
+  orderService: nexora-order-service:latest
+  reconciliationWorker: nexora-order-reconciliation-worker:latest
+  apiGateway: nexora-api-gateway:latest
+  frontend: nexora-frontend:latest
+
+secrets:
+  name: nexora-runtime
+
+postgres:
+  serviceName: postgres
+  port: 5432
+  database: postgres
+  persistence:
+    claimName: nexora-k8s-postgres-data
+    size: 5Gi
+    storageClassName: ""
+
+services:
+  user: { name: user-service, port: 8000 }
+  product: { name: product-service, port: 8001 }
+  order: { name: order-service, port: 8002 }
+  gateway: { name: api-gateway, port: 8081 }
+  frontend: { name: frontend, port: 8080 }
+
+resources:
+  postgres:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 750m, memory: 768Mi }
+  userService:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+  productService:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+  orderService:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+  reconciliationWorker:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+  apiGateway:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+  frontend:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }

@@ -1,0 +1,157 @@
+{{- $root := . }}
+{{- $apps := list
+  (dict "key" "userService" "name" .Values.services.user.name "port" .Values.services.user.port "image" .Values.images.userService "resources" .Values.resources.userService "dbKey" "USER_DATABASE_URL" "jwt" true "serviceToken" false "waitUser" false "waitProduct" false "waitOrder" false)
+  (dict "key" "productService" "name" .Values.services.product.name "port" .Values.services.product.port "image" .Values.images.productService "resources" .Values.resources.productService "dbKey" "PRODUCT_DATABASE_URL" "jwt" false "serviceToken" true "waitUser" true "waitProduct" false "waitOrder" false)
+  (dict "key" "orderService" "name" .Values.services.order.name "port" .Values.services.order.port "image" .Values.images.orderService "resources" .Values.resources.orderService "dbKey" "ORDER_DATABASE_URL" "jwt" true "serviceToken" true "waitUser" true "waitProduct" true "waitOrder" false)
+  (dict "key" "apiGateway" "name" .Values.services.gateway.name "port" .Values.services.gateway.port "image" .Values.images.apiGateway "resources" .Values.resources.apiGateway "dbKey" "" "jwt" false "serviceToken" false "waitUser" true "waitProduct" true "waitOrder" true)
+  (dict "key" "frontend" "name" .Values.services.frontend.name "port" .Values.services.frontend.port "image" .Values.images.frontend "resources" .Values.resources.frontend "dbKey" "" "jwt" false "serviceToken" false "waitUser" false "waitProduct" false "waitOrder" false)
+}}
+{{- range $app := $apps }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $app.name }}
+  labels:
+    {{- include "nexora.labels" $root | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "nexora.selector" (dict "name" $app.name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $app.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexora-{{ $app.name }}
+  labels:
+    {{- include "nexora.labels" $root | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nexora.selector" (dict "name" $app.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexora.selector" (dict "name" $app.name) | nindent 8 }}
+    spec:
+      {{- if or (eq $app.name "frontend") (or $app.dbKey (or $app.waitUser (or $app.waitProduct $app.waitOrder))) }}
+      initContainers:
+        {{- if eq $app.name "frontend" }}
+        - name: wait-for-api-gateway
+          image: {{ $app.image | quote }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          command: ["sh", "-c", "until wget -q -O /dev/null http://{{ $root.Values.services.gateway.name }}:{{ $root.Values.services.gateway.port }}/health; do sleep 2; done"]
+        {{- end }}
+        {{- if $app.dbKey }}
+        - name: wait-for-postgres
+          image: {{ $root.Values.images.postgres | quote }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.secrets.name }}
+                  key: POSTGRES_USER
+          command: ["sh", "-c", "until pg_isready -h {{ $root.Values.postgres.serviceName }} -p {{ $root.Values.postgres.port }} -U \"$PGUSER\" -d postgres; do sleep 2; done"]
+        {{- end }}
+        {{- if or $app.waitUser (or $app.waitProduct $app.waitOrder) }}
+        - name: wait-for-services
+          image: {{ $app.image | quote }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          command:
+            - python
+            - -c
+            - |
+              import time
+              from urllib.request import urlopen
+              dependencies = [
+              {{- if $app.waitUser }}
+                  "http://{{ $root.Values.services.user.name }}:{{ $root.Values.services.user.port }}/health",
+              {{- end }}
+              {{- if $app.waitProduct }}
+                  "http://{{ $root.Values.services.product.name }}:{{ $root.Values.services.product.port }}/health",
+              {{- end }}
+              {{- if $app.waitOrder }}
+                  "http://{{ $root.Values.services.order.name }}:{{ $root.Values.services.order.port }}/health",
+              {{- end }}
+              ]
+              for url in dependencies:
+                  while True:
+                      try:
+                          with urlopen(url, timeout=2):
+                              break
+                      except Exception:
+                          time.sleep(2)
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ $app.name }}
+          image: {{ $app.image | quote }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $app.port }}
+          {{- if ne $app.name "frontend" }}
+          envFrom:
+            - configMapRef:
+                name: nexora-service-config
+          {{- end }}
+          {{- if or $app.dbKey (or $app.jwt $app.serviceToken) }}
+          env:
+            {{- if $app.dbKey }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.secrets.name }}
+                  key: {{ $app.dbKey }}
+            {{- end }}
+            {{- if $app.jwt }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.secrets.name }}
+                  key: JWT_SECRET
+            {{- end }}
+            {{- if $app.serviceToken }}
+            - name: ORDER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.secrets.name }}
+                  key: ORDER_SERVICE_TOKEN
+            {{- end }}
+          {{- end }}
+          {{- if ne $app.name "frontend" }}
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          {{- else }}
+          startupProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+            failureThreshold: 20
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          {{- end }}
+          resources:
+            {{- toYaml $app.resources | nindent 12 }}
+{{- end }}

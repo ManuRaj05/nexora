@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from decimal import Decimal
 from uuid import uuid4
 from fastapi import Depends, FastAPI
 from fastapi import Request
@@ -16,6 +17,8 @@ from psycopg.types.json import Jsonb
 
 app = FastAPI()
 bearer_scheme = HTTPBearer(auto_error=False)
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
+PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/")
 
 
 def product_service_headers():
@@ -80,7 +83,7 @@ def get_existing_user_identity(
 ):
     try:
         response = httpx.get(
-            "http://127.0.0.1:8000/users/me",
+            f"{USER_SERVICE_URL}/users/me",
             headers={"Authorization": f"Bearer {credentials.credentials}"},
             timeout=5.0,
         )
@@ -134,7 +137,7 @@ def health():
 def get_product_reservation_status(item):
     try:
         response = httpx.get(
-            f"http://127.0.0.1:8001/products/{item['product_id']}/reservations/"
+            f"{PRODUCT_SERVICE_URL}/products/{item['product_id']}/reservations/"
             f"{item['reservation_id']}",
             headers=product_service_headers(),
             timeout=5.0,
@@ -227,7 +230,7 @@ def release_reserved_stock(reserved_items, idempotency_id, reservation_records, 
 
         try:
             response = httpx.post(
-                f"http://127.0.0.1:8001/products/{item['product_id']}/release",
+                f"{PRODUCT_SERVICE_URL}/products/{item['product_id']}/release",
                 params={
                     "quantity": item["quantity"],
                     "reservation_id": item["reservation_id"],
@@ -546,7 +549,7 @@ def create_order(
 def _process_order(order, identity, reservation_records, idempotency_id, operation_state, authorization=None):
     try:
         user_response = httpx.get(
-            f"http://127.0.0.1:8000/users/{order.user_id}",
+            f"{USER_SERVICE_URL}/users/{order.user_id}",
             headers={"Authorization": authorization} if authorization else None,
             timeout=5.0
         )
@@ -581,7 +584,7 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
             detail=f"User {order.user_id} not found"
         )
 
-    total_amount = 0
+    total_amount = Decimal("0")
     validated_items = []
     reserved_items = []
 
@@ -597,7 +600,7 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
     for item_index, item in enumerate(order.items):
         try:
             response = httpx.get(
-                f"http://127.0.0.1:8001/products/{item.product_id}",
+                f"{PRODUCT_SERVICE_URL}/products/{item.product_id}",
                 timeout=5.0
             )
         
@@ -646,6 +649,12 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
                         "Product Service request failed, and stock compensation "
                         "was incomplete. Manual reconciliation is required."
                     )
+                )
+
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Product {item.product_id} not found",
                 )
 
             raise HTTPException(
@@ -731,7 +740,7 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
 
         try:
             reserve_response = httpx.post(
-                f"http://127.0.0.1:8001/products/{item.product_id}/reserve",
+                f"{PRODUCT_SERVICE_URL}/products/{item.product_id}/reserve",
                 params={
                     "quantity": item.quantity,
                     "reservation_id": reservation_id,
@@ -870,13 +879,26 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
                 reservation_response_valid = False
 
         if reservation_response_valid:
-            set_reservation_state(
-                idempotency_id,
-                reservation_records,
-                item_index,
-                "RESERVED",
-                operation_state,
-            )
+            try:
+                set_reservation_state(
+                    idempotency_id,
+                    reservation_records,
+                    item_index,
+                    "RESERVED",
+                    operation_state,
+                )
+            except Exception:
+                try:
+                    save_reconciliation_task(
+                        uncertain_reservation,
+                        "Reservation succeeded but its order state could not be recorded",
+                    )
+                except Exception:
+                    print(
+                        "CRITICAL: Could not queue release for a confirmed reservation "
+                        "whose state update failed"
+                    )
+                raise
         else:
             reservation_status = get_product_reservation_status(uncertain_reservation)
             if reservation_status in ("RESERVED", "RELEASED"):
@@ -916,7 +938,7 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
             "reservation_index": item_index,
         })
 
-        price = float(product[3])
+        price = Decimal(str(product[3]))
         total_amount += price * item.quantity
 
         validated_items.append({
@@ -958,7 +980,10 @@ def _process_order(order, identity, reservation_records, idempotency_id, operati
                     "user_id": new_order[1],
                     "total_amount": float(new_order[2]),
                     "status": new_order[3],
-                    "items": validated_items,
+                    "items": [
+                        {**item, "price": float(item["price"])}
+                        for item in validated_items
+                    ],
                 }
                 completed_records = [
                     {**record, "state": "COMMITTED"}

@@ -2,6 +2,7 @@ import sys
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
@@ -119,8 +120,8 @@ def request_with_key(key="request-key-1"):
     return Mock(headers={"Idempotency-Key": key})
 
 
-def product_row(product_id=41):
-    return [product_id, "Test product", "Description", 12.5, 8, "Test"]
+def product_row(product_id=41, price=12.5):
+    return [product_id, "Test product", "Description", price, 8, "Test"]
 
 
 def reservation_response(reservation_id, product_id=41, status="RESERVED"):
@@ -272,6 +273,129 @@ class RecoveryFlowTests(unittest.TestCase):
         self.assertEqual(records[0]["state"], "UNKNOWN")
         mark_recovery.assert_called_once_with(23)
         save_failure.assert_not_called()
+
+    def test_later_insufficient_item_releases_earlier_reservation(self):
+        records = []
+        saved_failure = Mock()
+
+        def claim_with_records(user_id, key_digest, digest, payload, reservation_records):
+            records.extend(reservation_records)
+            return 25, reservation_records, None
+
+        get_responses = [
+            FakeResponse(200, [7, "customer"]),
+            FakeResponse(200, product_row(41)),
+            FakeResponse(200, product_row(42)),
+        ]
+        def product_post(url, params=None, **kwargs):
+            if url.endswith("/41/reserve"):
+                return reservation_response(params["reservation_id"], product_id=41)
+            if url.endswith("/42/reserve"):
+                return FakeResponse(409, {"detail": "Insufficient stock"})
+            if url.endswith("/41/release"):
+                return FakeResponse(200, {"status": "RELEASED"})
+            self.fail(f"Unexpected Product Service request: {url}")
+
+        with patch.object(order_service, "create_idempotency_record", side_effect=claim_with_records), \
+             patch.object(order_service, "set_reservation_state", side_effect=self._set_state_side_effect), \
+             patch.object(order_service, "save_failed_response", saved_failure), \
+             patch.object(order_service.httpx, "get", side_effect=get_responses), \
+             patch.object(order_service.httpx, "post", side_effect=product_post) as post:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.create_order(
+                    order_request([
+                        order_service.OrderItemCreate(product_id=41, quantity=1),
+                        order_service.OrderItemCreate(product_id=42, quantity=1),
+                    ]),
+                    request_with_key(),
+                    {"user_id": 7},
+                )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(post.call_count, 3)
+        self.assertIn("/release", post.call_args_list[2].args[0])
+        self.assertEqual(
+            post.call_args_list[2].kwargs["params"]["reservation_id"],
+            post.call_args_list[0].kwargs["params"]["reservation_id"],
+        )
+        self.assertEqual(records[0]["state"], "RELEASED")
+        self.assertEqual(records[1]["state"], "NOT_RESERVED")
+        saved_failure.assert_called_once_with(25, 409, {"detail": "Insufficient stock for product 42"})
+
+    def test_missing_product_is_reported_as_not_found_without_reservation(self):
+        save_failure = Mock()
+        with patch.object(order_service, "create_idempotency_record", side_effect=self._claim_side_effect), \
+             patch.object(order_service, "save_failed_response", save_failure), \
+             patch.object(
+                 order_service.httpx,
+                 "get",
+                 side_effect=[FakeResponse(200, [7, "customer"]), FakeResponse(404, {"detail": "Product not found"})],
+             ), \
+             patch.object(order_service.httpx, "post") as post:
+            with self.assertRaises(HTTPException) as raised:
+                order_service.create_order(order_request(), request_with_key(), {"user_id": 7})
+
+        self.assertEqual(raised.exception.status_code, 404)
+        post.assert_not_called()
+        save_failure.assert_called_once_with(22, 404, {"detail": "Product 41 not found"})
+
+    def test_nonpositive_quantity_is_rejected_without_reservation(self):
+        with patch.object(order_service.httpx, "get", side_effect=[
+            FakeResponse(200, [7, "customer"]),
+            FakeResponse(200, product_row()),
+        ]), patch.object(order_service.httpx, "post") as post:
+            with self.assertRaises(HTTPException) as raised:
+                order_service._process_order(
+                    order_request([order_service.OrderItemCreate(product_id=41, quantity=0)]),
+                    {"user_id": 7},
+                    [{"reservation_id": "unused", "product_id": 41, "quantity": 0, "state": "NOT_STARTED"}],
+                    22,
+                    {"tracking_failed": False},
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        post.assert_not_called()
+
+    def test_fractional_item_prices_are_summed_as_exact_decimal_values(self):
+        cursor = FakeCursor(fetches=[(987, 7, Decimal("0.30"), "PENDING", None)])
+        connection = FakeConnection(cursor)
+        get_responses = [
+            FakeResponse(200, [7, "customer"]),
+            FakeResponse(200, product_row(41, 0.1)),
+            FakeResponse(200, product_row(42, 0.2)),
+        ]
+
+        def product_post(url, params=None, **kwargs):
+            return reservation_response(params["reservation_id"], product_id=41 if url.endswith("/41/reserve") else 42)
+
+        with patch.object(order_service, "set_reservation_state", side_effect=self._set_state_side_effect), \
+             patch.object(order_service, "get_connection", return_value=connection), \
+             patch.object(order_service.httpx, "get", side_effect=get_responses), \
+             patch.object(order_service.httpx, "post", side_effect=product_post):
+            result = order_service._process_order(
+                order_request([
+                    order_service.OrderItemCreate(product_id=41, quantity=1),
+                    order_service.OrderItemCreate(product_id=42, quantity=1),
+                ]),
+                {"user_id": 7},
+                [
+                    {"reservation_id": "one", "product_id": 41, "quantity": 1, "state": "NOT_STARTED"},
+                    {"reservation_id": "two", "product_id": 42, "quantity": 1, "state": "NOT_STARTED"},
+                ],
+                22,
+                {"tracking_failed": False},
+            )
+
+        order_insert = next(
+            params for query, params in cursor.queries if "INSERT INTO orders" in query
+        )
+        item_inserts = [
+            params for query, params in cursor.queries if "INSERT INTO order_items" in query
+        ]
+        self.assertEqual(order_insert[1], Decimal("0.3"))
+        self.assertEqual([params[3] for params in item_inserts], [Decimal("0.1"), Decimal("0.2")])
+        self.assertEqual(result["total_amount"], 0.3)
+        self.assertEqual([item["price"] for item in result["items"]], [0.1, 0.2])
 
     def test_reserve_404_checks_status_and_compensates_active_reservation(self):
         saved_failure = Mock()
@@ -441,6 +565,44 @@ class RecoveryFlowTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 500)
         recovery.assert_called_once_with(22)
         failed.assert_not_called()
+
+    def test_confirmed_reservation_is_queued_for_release_if_state_tracking_fails(self):
+        records = [{
+            "reservation_id": "stable-reservation",
+            "product_id": 41,
+            "quantity": 1,
+            "state": "NOT_STARTED",
+        }]
+        operation_state = {"tracking_failed": False, "reservation_records": records}
+
+        def fail_reserved_state_update(idempotency_id, reservation_records, index, state, state_info):
+            reservation_records[index]["state"] = state
+            if state == "RESERVED":
+                state_info["tracking_failed"] = True
+                raise RuntimeError("state update failed")
+
+        get_responses = [
+            FakeResponse(200, [7, "customer"]),
+            FakeResponse(200, product_row()),
+        ]
+        with patch.object(order_service.httpx, "get", side_effect=get_responses), \
+             patch.object(order_service.httpx, "post", return_value=reservation_response("stable-reservation")), \
+             patch.object(order_service, "set_reservation_state", side_effect=fail_reserved_state_update), \
+             patch.object(order_service, "save_reconciliation_task") as reconciliation_task:
+            with self.assertRaisesRegex(RuntimeError, "state update failed"):
+                order_service._process_order(
+                    order_request(),
+                    {"user_id": 7},
+                    records,
+                    22,
+                    operation_state,
+                )
+
+        reconciliation_task.assert_called_once()
+        task = reconciliation_task.call_args.args[0]
+        self.assertEqual(task["reservation_id"], "stable-reservation")
+        self.assertEqual(task["product_id"], 41)
+        self.assertEqual(task["quantity"], 1)
 
 
 class OrderReadIdentityTests(unittest.TestCase):
