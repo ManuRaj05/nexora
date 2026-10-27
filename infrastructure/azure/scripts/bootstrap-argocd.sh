@@ -1,13 +1,12 @@
+
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run on the existing Azure VM as azureuser.
-# This script is safe to rerun and does not recreate the VM.
-
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+K=(sudo kubectl)
 
 echo "==> Checking k3s"
-sudo kubectl wait --for=condition=Ready node --all --timeout=120s
+"${K[@]}" wait --for=condition=Ready node --all --timeout=120s
 
 echo "==> Installing Helm if missing"
 if ! command -v helm >/dev/null 2>&1; then
@@ -15,29 +14,30 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 helm version
 
-echo "==> Installing Argo CD if missing"
-if ! sudo kubectl get namespace argocd >/dev/null 2>&1; then
-  sudo kubectl create namespace argocd
-fi
+echo "==> Creating application namespace"
+"${K[@]}" create namespace nexora \
+  --dry-run=client -o yaml | "${K[@]}" apply -f -
 
-if ! sudo kubectl get deployment argocd-server -n argocd >/dev/null 2>&1; then
-  sudo kubectl apply -n argocd \
+echo "==> Installing Argo CD if missing"
+"${K[@]}" create namespace argocd \
+  --dry-run=client -o yaml | "${K[@]}" apply -f -
+
+if ! "${K[@]}" get deployment argocd-server -n argocd >/dev/null 2>&1; then
+  "${K[@]}" apply -n argocd \
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 fi
 
 echo "==> Waiting for Argo CD"
-sudo kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
-sudo kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=300s
+"${K[@]}" rollout status deployment/argocd-server -n argocd --timeout=300s
+"${K[@]}" rollout status deployment/argocd-repo-server -n argocd --timeout=300s
 
-echo "==> Creating Nexora runtime credentials if absent"
-if ! sudo kubectl get secret nexora-runtime -n nexora >/dev/null 2>&1; then
+echo "==> Creating runtime Secret if absent"
+if ! "${K[@]}" get secret nexora-runtime -n nexora >/dev/null 2>&1; then
   POSTGRES_PASSWORD="$(openssl rand -hex 24)"
   JWT_SECRET="$(openssl rand -hex 32)"
   ORDER_SERVICE_TOKEN="$(openssl rand -hex 32)"
 
-  sudo kubectl create namespace nexora --dry-run=client -o yaml | sudo kubectl apply -f -
-
-  sudo kubectl create secret generic nexora-runtime -n nexora \
+  "${K[@]}" create secret generic nexora-runtime -n nexora \
     --from-literal=POSTGRES_USER=nexora_admin \
     --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     --from-literal=USER_DATABASE_URL="postgresql://nexora_admin:${POSTGRES_PASSWORD}@postgres:5432/nexora_users" \
@@ -46,8 +46,12 @@ if ! sudo kubectl get secret nexora-runtime -n nexora >/dev/null 2>&1; then
     --from-literal=JWT_SECRET="$JWT_SECRET" \
     --from-literal=ORDER_SERVICE_TOKEN="$ORDER_SERVICE_TOKEN"
 else
-  echo "Runtime Secret already exists; keeping existing credentials."
+  echo "Existing runtime Secret preserved."
 fi
 
-echo "==> Bootstrap prerequisites are ready"
-echo "Next: configure the Argo CD Application after the chart is available in GitHub."
+echo "==> Registering Nexora with Argo CD"
+"${K[@]}" apply -n argocd \
+  -f https://raw.githubusercontent.com/ManuRaj05/nexora/main/infrastructure/azure/argocd-application.yaml
+
+echo "==> Bootstrap complete"
+echo "Check status with: sudo kubectl get applications -n argocd"
