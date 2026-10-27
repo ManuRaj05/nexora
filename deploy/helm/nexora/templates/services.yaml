@@ -30,7 +30,7 @@ metadata:
   labels:
     {{- include "nexora.labels" $root | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ if eq $app.name "frontend" }}{{ $root.Values.replicas.frontend }}{{ else }}1{{ end }}
   selector:
     matchLabels:
       {{- include "nexora.selector" (dict "name" $app.name) | nindent 6 }}
