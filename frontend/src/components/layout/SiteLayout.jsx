@@ -22,7 +22,7 @@ export default function SiteLayout() {
 
   return (
     <div className="site-shell">
-      <div className="announcement">A little more considered. A lot more everyday.</div>
+      <div className="announcement">A little more considered. A lot more everyday. ✨</div>
       <header className="site-header">
         <div className={`header-inner${user?.role === 'ADMIN' ? ' admin-header' : ''}`}>
           <NavLink className="brand" to="/" aria-label="Nexora home">
