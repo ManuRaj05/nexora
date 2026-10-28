@@ -16,12 +16,12 @@ replicas:
 images:
   pullPolicy: IfNotPresent
   postgres: postgres:17.11-alpine3.24
-  userService: manuraj05/nexora-user-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
-  productService: manuraj05/nexora-product-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
-  orderService: manuraj05/nexora-order-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
-  reconciliationWorker: manuraj05/nexora-order-reconciliation-worker:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
-  apiGateway: manuraj05/nexora-api-gateway:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
-  frontend: manuraj05/nexora-frontend:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  userService: manuraj05/nexora-user-service:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
+  productService: manuraj05/nexora-product-service:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
+  orderService: manuraj05/nexora-order-service:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
+  reconciliationWorker: manuraj05/nexora-order-reconciliation-worker:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
+  apiGateway: manuraj05/nexora-api-gateway:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
+  frontend: manuraj05/nexora-frontend:a8f35a99c6e5da113fbef15b16394dbfc2fc5164
   
 ingress:
   enabled: true
