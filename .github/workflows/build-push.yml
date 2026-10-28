@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-push:
@@ -83,3 +83,23 @@ jobs:
           tags: |
             manuraj05/nexora-order-reconciliation-worker:latest
             manuraj05/nexora-order-reconciliation-worker:${{ github.sha }}
+
+      - name: Update Helm image tags for GitOps
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          sed -i -E \
+            "s#(manuraj05/nexora-(frontend|api-gateway|user-service|product-service|order-service|order-reconciliation-worker)):[^[:space:]]+#\1:${IMAGE_TAG}#g" \
+            deploy/helm/nexora/values-azure.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add deploy/helm/nexora/values-azure.yaml
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(gitops): deploy images ${IMAGE_TAG}"
+            git push
+          else
+            echo "Image tags are already up to date."
+          fi
