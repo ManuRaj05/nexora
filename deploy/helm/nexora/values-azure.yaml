@@ -16,12 +16,12 @@ replicas:
 images:
   pullPolicy: IfNotPresent
   postgres: postgres:17.11-alpine3.24
-  userService: manuraj05/nexora-user-service:latest
-  productService: manuraj05/nexora-product-service:latest
-  orderService: manuraj05/nexora-order-service:latest
-  reconciliationWorker: manuraj05/nexora-order-reconciliation-worker:latest
-  apiGateway: manuraj05/nexora-api-gateway:latest
-  frontend: manuraj05/nexora-frontend:latest
+  userService: manuraj05/nexora-user-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  productService: manuraj05/nexora-product-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  orderService: manuraj05/nexora-order-service:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  reconciliationWorker: manuraj05/nexora-order-reconciliation-worker:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  apiGateway: manuraj05/nexora-api-gateway:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
+  frontend: manuraj05/nexora-frontend:f151365f7e46f2f6d0ecafb85e6e98e0313cd2e6
   
 ingress:
   enabled: true
